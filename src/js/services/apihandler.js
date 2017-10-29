@@ -1,7 +1,7 @@
 (function(angular) {
     'use strict';
-    angular.module('FileManagerApp').service('apiHandler', ['$http', '$q', '$window', '$translate', '$httpParamSerializer', 'Upload',
-        function ($http, $q, $window, $translate, $httpParamSerializer, Upload) {
+    angular.module('FileManagerApp').service('apiHandler', ['$http', '$q', '$window', '$translate', '$httpParamSerializer', 'Upload', 'fileManagerConfig',
+        function ($http, $q, $window, $translate, $httpParamSerializer, Upload, fileManagerConfig) {
 
         $http.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
@@ -52,7 +52,7 @@
             self.inprocess = true;
             self.error = '';
 
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 dfHandler(response.data, deferred, response.status);
             }, function(response) {
                 dfHandler(response.data, deferred, response.status, 'Unknown error listing, check the response');
@@ -77,7 +77,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_copying'));
@@ -97,7 +97,7 @@
             };
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_moving'));
@@ -117,7 +117,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_deleting'));
@@ -171,7 +171,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_getting_content'));
@@ -193,7 +193,7 @@
             self.inprocess = true;
             self.error = '';
 
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_modifying'));
@@ -213,7 +213,7 @@
             };
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_renaming'));
@@ -296,7 +296,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_compressing'));
@@ -318,7 +318,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_extracting'));
@@ -341,7 +341,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_changing_perms'));
@@ -361,7 +361,7 @@
 
             self.inprocess = true;
             self.error = '';
-            $http.post(apiUrl, data).then(function(response) {
+            $http.post(apiUrl + queryToken, data).then(function(response) {
                 self.deferredHandler(response.data, deferred, response.status);
             }, function(response) {
                 self.deferredHandler(response.data, deferred, response.status, $translate.instant('error_creating_folder'));

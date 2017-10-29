@@ -1,9 +1,9 @@
 """
-Python backend for angular-filemanager
+Django backend for angular-filemanager
 
 The MIT License (MIT)
 
-Copyright (c) 2016 Yihui Xiong
+Copyright (c) 2017 Esmairi Adel
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -30,7 +30,9 @@ import os
 import shutil
 import stat
 import zipfile
-import tornado.web
+from django.core.files.storage import FileSystemStorage
+from distutils.dir_util import copy_tree
+import tempfile
 
 
 def timestamp_to_str(timestamp, format_str='%Y-%m-%d %I:%M:%S'):
@@ -45,17 +47,32 @@ def filemode(mode):
     return is_dir + ''.join(dic.get(x, x) for x in perm)
 
 
+def compress_zip(base_name, folders):
+    with zipfile.ZipFile(base_name + '.zip',
+                         "w",
+                         zipfile.ZIP_DEFLATED,
+                         allowZip64=True) as zf:
+        for f in folders:
+            if os.path.isfile(f):
+                zf.write(f,os.path.basename(f))
+                continue
+            os.chdir(os.path.dirname(f))
+            for root, _, filenames in os.walk(os.path.basename(f)):
+                for name in filenames:
+                    name = os.path.join(root, name)
+                    name = os.path.normpath(name)
+                    zf.write(name, name)
+
+
 def get_file_information(path):
     fstat = os.stat(path)
     if stat.S_ISDIR(fstat.st_mode):
         ftype = 'dir'
     else:
         ftype = 'file'
-
     fsize = fstat.st_size
     ftime = timestamp_to_str(fstat.st_mtime)
     fmode = filemode(fstat.st_mode)
-
     return ftype, fsize, ftime, fmode
 
 
@@ -81,14 +98,11 @@ class FileManager:
         for fname in sorted(os.listdir(path)):
             if fname.startswith('.') and not self.show_dotfiles:
                 continue
-
             fpath = os.path.join(path, fname)
-
             try:
                 ftype, fsize, ftime, fmode = get_file_information(fpath)
             except Exception as e:
                 continue
-
             files.append({
                 'name': fname,
                 'rights': fmode,
@@ -103,14 +117,11 @@ class FileManager:
         try:
             src = os.path.abspath(self.root + request['item'])
             dst = os.path.abspath(self.root + request['newItemPath'])
-            print('rename {} {}'.format(src, dst))
             if not (os.path.exists(src) and src.startswith(self.root) and dst.startswith(self.root)):
                 return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
             shutil.move(src, dst)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
     def copy(self, request):
@@ -118,22 +129,19 @@ class FileManager:
             items = request['items']
             if len(items) == 1 and 'singleFilename' in request:
                 src = os.path.abspath(self.root + items[0])
-                dst = os.path.abspath(self.root + request['singleFilename'])
+                dst = os.path.abspath(self.root + request['newPath'] + '/' + request['singleFilename'])
                 if not (os.path.exists(src) and src.startswith(self.root) and dst.startswith(self.root)):
                     return {'result': {'success': 'false', 'error': 'File not found'}}
-
-                shutil.move(src, dst)
+                shutil.copyfile(src, dst)
             else:
                 path = os.path.abspath(self.root + request['newPath'])
                 for item in items:
                     src = os.path.abspath(self.root + item)
                     if not (os.path.exists(src) and src.startswith(self.root) and path.startswith(self.root)):
                         return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
-                    shutil.move(src, path)
+                    shutil.copyfile(src, path)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
     def remove(self, request):
@@ -143,14 +151,12 @@ class FileManager:
                 path = os.path.abspath(self.root + item)
                 if not (os.path.exists(path) and path.startswith(self.root)):
                     return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
                 if os.path.isdir(path):
                     shutil.rmtree(path)
                 else:
                     os.remove(path)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
     def edit(self, request):
@@ -158,13 +164,11 @@ class FileManager:
             path = os.path.abspath(self.root + request['item'])
             if not path.startswith(self.root):
                 return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
             content = request['content']
             with open(path, 'w') as f:
                 f.write(content)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
     def getContent(self, request):
@@ -172,12 +176,10 @@ class FileManager:
             path = os.path.abspath(self.root + request['item'])
             if not path.startswith(self.root):
                 return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
             with open(path, 'r') as f:
                 content = f.read()
         except Exception as e:
             content = e.message
-
         return {'result': content}
 
     def createFolder(self, request):
@@ -185,31 +187,40 @@ class FileManager:
             path = os.path.abspath(self.root + request['newPath'])
             if not path.startswith(self.root):
                 return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
             os.makedirs(path)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
+        return {'result': {'success': 'true', 'error': ''}}
 
+    def move(self, request):
+        try:
+            dst = os.path.abspath(self.root + request['newPath'])
+            if not dst.startswith(self.root):
+                return {'result': {'success': 'false', 'error': 'Invalid path'}}
+            for item in request['items']:
+                src = os.path.abspath(self.root + item)
+                if not (os.path.exists(src) and src.startswith(self.root) and dst.startswith(self.root)):
+                    return {'result': {'success': 'false', 'error': 'Invalid path'}}
+                shutil.move(src, dst)
+        except Exception as e:
+            return {'result': {'success': 'false', 'error': e.message}}
         return {'result': {'success': 'true', 'error': ''}}
 
     def changePermissions(self, request):
         try:
             items = request['items']
-            permissions = int(request['perms'], 8)
+            permissions = int(request['permsCode'], 8)
             recursive = request['recursive']
-            print('recursive: {}, type: {}'.format(recursive, type(recursive)))
             for item in items:
                 path = os.path.abspath(self.root + item)
                 if not (os.path.exists(path) and path.startswith(self.root)):
                     return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
-                if recursive == 'true':
+                if recursive:
                     change_permissions_recursive(path, permissions)
                 else:
                     os.chmod(path, permissions)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
     def compress(self, request):
@@ -218,128 +229,73 @@ class FileManager:
             path = os.path.abspath(os.path.join(self.root + request['destination'], request['compressedFilename']))
             if not path.startswith(self.root):
                 return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
-            zip_file = zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED)
+            folders = []
             for item in items:
-                path = os.path.abspath(self.root + item)
-                if not (os.path.exists(path) and path.startswith(self.root)):
+                _path = os.path.abspath(self.root + item)
+                if not (os.path.exists(_path) and _path.startswith(self.root)):
                     continue
-
-                if os.path.isfile(path):
-                    zip_file.write(path)
-                else:
-                    for root, dirs, files in os.walk(path):
-                        for f in files:
-                            zip_file.write(
-                                f,
-                                os.path.relpath(os.path.join(root, f), os.path.join(path, '..'))
-                            )
-
-            zip_file.close()
+                folders.append(_path)
+            compress_zip(path, folders)
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
     def extract(self, request):
         try:
             src = os.path.abspath(self.root + request['item'])
-            dst = os.path.abspath(self.root + request['destination'])
+            dst = os.path.abspath(self.root + request['destination'] + '/' + request['folderName'])
             if not (os.path.isfile(src) and src.startswith(self.root) and dst.startswith(self.root)):
                 return {'result': {'success': 'false', 'error': 'Invalid path'}}
-
             zip_file = zipfile.ZipFile(src, 'r')
             zip_file.extractall(dst)
             zip_file.close()
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
-    def upload(self, handler):
+    def upload(self, files, dest):
         try:
-            destination = handler.get_body_argument('destination', default='/')
-            for name in handler.request.files:
-                fileinfo = handler.request.files[name][0]
-                filename = fileinfo['filename']
-                path = os.path.abspath(os.path.join(self.root, destination, filename))
+            for _file in list(files):
+                path = os.path.join(self.root, dest.replace('/', '', 1))
                 if not path.startswith(self.root):
-                    return {'result': {'success': 'false', 'error': 'Invalid path'}}
-                with open(path, 'wb') as f:
-                    f.write(fileinfo['body'])
+                     return {'result': {'success': 'false', 'error': 'Invalid path'}}
+                fs = FileSystemStorage(location=path)
+                fs.save(files.get(_file).name, files.get(_file))
         except Exception as e:
             return {'result': {'success': 'false', 'error': e.message}}
-
         return {'result': {'success': 'true', 'error': ''}}
 
-    def download(self, path):
+    def download(self, path, HttpResponse):
         path = os.path.abspath(self.root + path)
-        print(path)
-        content = ''
+        response = ''
         if path.startswith(self.root) and os.path.isfile(path):
-            print(path)
             try:
                 with open(path, 'rb') as f:
-                    content = f.read()
+                    response = HttpResponse(f.read(), content_type="application/octet-stream")
+                    response['Content-Disposition'] = 'inline; filename=' + os.path.basename(path)
             except Exception as e:
-                pass
-        return content
+                raise Http404
+        return response
 
-
-class FileManagerHandler(tornado.web.RequestHandler):
-    def initialize(self, root='/', show_dotfiles=True):
-        self.filemanager = FileManager(root, show_dotfiles)
-
-    def get(self):
-        action = self.get_query_argument('action', '')
-        path = self.get_query_argument('path', '')
-        if action == 'download' and path:
-            result = self.filemanager.download(path)
-            self.write(result)
-
-    def post(self):
-        if self.request.headers.get('Content-Type').find('multipart/form-data') >= 0:
-            result = self.filemanager.upload(self)
-            self.write(json.dumps(result))
+    def downloadMultiple(self, request, HttpResponse):
+        items = dict(request.iterlists())
+        folders = []
+        for item in items['items[]']:
+            _path = os.path.join(self.root + os.path.expanduser(item))
+            if not ( (os.path.exists(_path) or os.path.isfile(_path))and _path.startswith(self.root)):
+                continue
+            folders.append(_path)
+        tmpdir = tempfile.mkdtemp()
+        filename = items['toFilename'][0].replace('.zip', '',1)
+        saved_umask = os.umask(0077)
+        path = os.path.join(tmpdir, filename)
+        try:
+            compress_zip(path, folders)
+            with open(path+".zip", 'rb') as f:
+                    response = HttpResponse(f.read(), content_type="application/octet-stream")
+                    response['Content-Disposition'] = 'inline; filename=' + os.path.basename(path)+'.zip'
+            return [response, saved_umask, tmpdir]
+        except IOError as e:
+            print("IOError")
         else:
-            try:
-                request = tornado.escape.json_decode(self.request.body)
-                if 'action' in request and hasattr(self.filemanager, request['action']):
-                    method = getattr(self.filemanager, request['action'])
-                    result = method(request)
-                    self.write(json.dumps(result))
-            except ValueError:
-                pass
-
-
-def main():
-    import logging
-    import tornado.ioloop
-
-    logging.basicConfig(level=logging.DEBUG)
-
-    handlers = [
-        (r'/bridges/php/handler.php', FileManagerHandler, {'root': os.getcwd(), 'show_dotfiles': True}),
-        (
-            r'/(.*)',
-            tornado.web.StaticFileHandler,
-            {
-                'path': os.path.join(os.path.dirname(__file__), '../..'),
-                'default_filename': 'index.html'
-            }
-        ),
-    ]
-
-    app = tornado.web.Application(handlers, debug=True)
-    try:
-        logging.debug('Open http://127.0.0.1:8000 to use the file manager')
-        app.listen(8000)
-        tornado.ioloop.IOLoop.instance().start()
-    except Exception as e:
-        print(e.message)
-
-    tornado.ioloop.IOLoop.instance().stop()
-
-
-if __name__ == '__main__':
-    main()
+            shutil.rmtree(tmpdir, ignore_errors=True)
